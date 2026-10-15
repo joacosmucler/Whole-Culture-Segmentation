@@ -59,15 +59,18 @@ def test_fill_small_holes_keeps_gaps_between_cells():
 
 def test_thumbnail_mask_styles():
     import numpy as np
+    from scipy import ndimage as ndi
     from fociquant.report import thumb_rgb
     img, cells = synth()
     p = Params()
-    out = thumb_rgb(img, cells, p, "Green", step=1, style="Outline")
-    fil = thumb_rgb(img, cells, p, "Green", step=1, style="Fill", fill_opacity=1.0)
+    base = thumb_rgb(img, np.zeros_like(cells), p, "Green", step=1, style="Outline")      # no mask -> plain image
+    outline = thumb_rgb(img, cells, p, "Green", step=1, style="Outline")
+    fill = thumb_rgb(img, cells, p, "Green", step=1, style="Fill", fill_opacity=1.0)
     both = thumb_rgb(img, cells, p, "Green", step=1, style="Outline + Fill", fill_opacity=0.5)
-    inside = (cells.copy())
-    inside[:, :] = cells
-    assert (fil[cells] == (255, 235, 0)).all(axis=-1).mean() > 0.99          # opaque fill covers the mask
-    assert (out[cells] == (255, 235, 0)).all(axis=-1).mean() < 0.1           # outline touches only the rim
-    assert (both[100, 100] != fil[100, 100]).any() or True                   # translucent in the interior
-    assert not (both[100, 100] == (255, 235, 0)).all()                        # 50% fill is blended, not solid
+    deep = ndi.binary_erosion(cells, iterations=3)                    # interior, away from the rim
+    changed = lambda a: (a != base).any(axis=-1)                      # noqa: E731
+    assert changed(fill)[cells].all() and not changed(fill)[~cells].any()      # opaque fill: whole mask, only mask
+    assert not changed(outline)[deep].any() and changed(outline).sum() < 0.1 * cells.sum()   # rim only
+    yellow = fill[deep][0]
+    assert (both[deep] != yellow).any(axis=-1).all()                  # 50% fill is blended, not solid yellow
+    assert changed(both)[deep].all()                                  # ...but it is visible
