@@ -14,10 +14,16 @@ fociquant                        # launches the GUI   (or: python -m fociquant_g
 ## Using the GUI (5 steps)
 
 1. **Add files / Add folder** (TIFF or CZI). The *Condition* column defaults to the parent folder name — edit it freely.
-2. Check **Channels** (default: 0 = red foci, 1 = brightfield, 2 = green membrane).
+2. **Channels** are read from the file metadata (Zeiss/CZI info, also kept in Fiji-exported TIFFs): the dropdowns list
+   the real channel names (e.g. `0 · Rhoda (Rhodamine)`) and the roles are assigned automatically when the first image
+   opens. *Auto-detect from metadata* re-applies it. Roles follow **dye / contrast method, not display colour**
+   (brightfield = Brightfield/Transmitted; foci = Rhodamine/mCherry/Cy3/AF555-594…; segmentation channel = the other
+   fluorescence channel, e.g. AF647 shown in green). Files without metadata: pick the channels by hand.
 3. Select an image and tune the **Cell mask** until the yellow contour follows the cells
    (the status line shows backgrounds, threshold, mask % and the resulting mean live).
    Main knob: **Threshold k × noise** (lower = larger mask). Use *View → Red + Green* to sanity check.
+   **Preview grid…** (top right) applies the current parameters to all images, or one condition, side by side with the
+   mean of each; click a tile to open it in the main view.
 4. Optional: tick **Use brightfield** (`and` removes green junk, `or` recovers dim cells).
    Backgrounds can be overridden: choose method **roi** and drag the teal box over an empty area, or **fixed**.
 5. Pick an output folder and press **RUN BATCH**.

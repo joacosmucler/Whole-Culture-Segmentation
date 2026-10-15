@@ -24,6 +24,22 @@ def overlay_rgb(img, mask, p) -> np.ndarray:
     return (np.concatenate(tiles, 1) * 255).astype(np.uint8)
 
 
+def thumb_rgb(img, mask, p, view: str = "Green", step: int = 2) -> np.ndarray:
+    """Downsampled RGB preview (uint8) with the mask contour in yellow. view: Green | Red | Red + Green."""
+    from skimage.segmentation import find_boundaries
+    d = img.data[:, ::step, ::step]
+    pick = lambda i: d[min(i, d.shape[0] - 1)]            # noqa: E731
+    if view == "Red":
+        g = _norm(pick(p.ch_red)); rgb = np.stack([g, g, g], -1)
+    elif view == "Red + Green":
+        r, g = _norm(pick(p.ch_red)), _norm(pick(p.ch_green))
+        rgb = np.stack([r, g, np.zeros_like(r)], -1)
+    else:
+        g = _norm(pick(p.ch_green)); rgb = np.stack([g, g, g], -1)
+    rgb[find_boundaries(mask[::step, ::step], mode="inner")] = (1, 0.92, 0)
+    return (rgb * 255).astype(np.uint8)
+
+
 def save_qc(out: Path, im, seg, p) -> None:
     import tifffile
     from PIL import Image as PI

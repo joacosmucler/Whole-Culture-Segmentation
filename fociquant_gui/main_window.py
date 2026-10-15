@@ -17,7 +17,10 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialo
 from fociquant.io import find_images, load_image
 from fociquant.pipeline import Params, analyze_image, run_batch
 
+from fociquant.channels import guess_roles
+
 from .canvas import VIEWS, Canvas
+from .grid_dialog import GridDialog
 from .params_panel import ParamsPanel
 from .worker import Worker
 
@@ -27,7 +30,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("FociQuant — mean foci intensity in cells")
         self.resize(1500, 950)
-        self.settings = QSettings("FociQuant", "FociQuant")
+        self.settings = QSettings("FociQuantTest" if os.environ.get("FOCIQUANT_TEST") else "FociQuant", "FociQuant")
         self.files: list[str] = []
         self.conditions: dict[str, str] = {}
         self.rois: dict[str, tuple] = {}
@@ -58,6 +61,9 @@ class MainWindow(QMainWindow):
 
         self.params = ParamsPanel()
         self.params.changed.connect(self._params_changed)
+        self.params.autodetect_requested.connect(self._autodetect)
+        self._grid: GridDialog | None = None
+        self._auto_applied = False
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(self.params)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
 
@@ -81,6 +87,10 @@ class MainWindow(QMainWindow):
         top = QHBoxLayout()
         top.addWidget(QLabel("View")); top.addWidget(self.view_combo); top.addWidget(self.show_mask)
         top.addWidget(QLabel("Opacity")); top.addWidget(self.opacity); top.addStretch(1)
+        self.grid_btn = QPushButton("Preview grid…")
+        self.grid_btn.setToolTip("Apply the current parameters to all images (or one condition) side by side")
+        self.grid_btn.clicked.connect(self._open_grid)
+        top.addWidget(self.grid_btn)
 
         self.canvas = Canvas()
         self.canvas.roi_changed.connect(self._roi_moved)
@@ -210,6 +220,10 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Could not open image", f"{f}\n\n{e}")
                 return
         im = self._cache[f]
+        self.params.set_channel_labels(im.channel_labels())
+        if not self._auto_applied and im.channels:
+            self._auto_applied = True
+            self._autodetect(announce=False)
         H, W = im.data.shape[1:]
         if f not in self.rois:
             self.rois[f] = (10, 10, min(110, W), min(110, H))
@@ -217,6 +231,41 @@ class MainWindow(QMainWindow):
         self._seg = None
         self._redraw()
         self._timer.start()
+
+    # ------------------------------------------------------- channel metadata
+    def _autodetect(self, announce: bool = True):
+        im = self._cache.get(self._cur) if self._cur else None
+        if im is None:
+            self.status.setText("Select an image first.")
+            return
+        roles, why = guess_roles(im.channels)
+        if not roles:
+            self.status.setText("This file has no channel metadata — set the channels by hand.")
+            return
+        p = self.params.get_params()
+        for k, v in roles.items():
+            setattr(p, k, v)
+        self.params.set_params(p)
+        self.status.setText(f"Channels from metadata: {why}")
+
+    # ------------------------------------------------------------- grid
+    def _open_grid(self):
+        if not self.files:
+            QMessageBox.information(self, "No images", "Add images first.")
+            return
+        if self._grid is None:
+            def get_image(f):
+                if f not in self._cache:
+                    self._cache[f] = load_image(f)[0]
+                return self._cache[f]
+            self._grid = GridDialog(self, lambda: list(self.files), lambda f: self.conditions.get(f, ""),
+                                    get_image, self._current_params)
+            self._grid.selected.connect(self._select_file)
+        self._grid.open_dialog()
+
+    def _select_file(self, f: str):
+        if f in self.files:
+            self.file_table.selectRow(self.files.index(f))
 
     # ---------------------------------------------------------- live preview
     def _params_changed(self):
@@ -230,8 +279,9 @@ class MainWindow(QMainWindow):
 
     def _current_params(self, f: str) -> Params:
         p = self.params.get_params()
-        if self.params.uses_roi() and f in self.rois:
-            p = replace(p, g_bg_roi=self.rois[f], r_bg_roi=self.rois[f])
+        if self.params.uses_roi():                  # files never previewed get the default box
+            box = self.rois.get(f, (10, 10, 110, 110))
+            p = replace(p, g_bg_roi=box, r_bg_roi=box)
         return p
 
     def _recompute(self):
