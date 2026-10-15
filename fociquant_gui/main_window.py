@@ -93,14 +93,23 @@ class MainWindow(QMainWindow):
         self.show_mask.toggled.connect(lambda _: self._redraw())
         self.opacity = QSlider(Qt.Orientation.Horizontal); self.opacity.setRange(10, 100); self.opacity.setValue(90)
         self.opacity.setMaximumWidth(120)
-        self.opacity.valueChanged.connect(lambda _: self._redraw())
+        self.opacity.valueChanged.connect(self._opacity_changed)
+        self.mask_style = QComboBox(); self.mask_style.addItems(["Outline", "Fill", "Outline + Fill"])
+        self._style_opacity = {"Outline": 90, "Fill": 40, "Outline + Fill": 40}   # remembered per style
+        self._style_now = "Outline"
+        self.mask_style.currentTextChanged.connect(self._style_changed)
         self.view_combo.setToolTip(tip("Which channel to display. 'Red + Green' overlays foci and membrane; "
                                        "'Brightfield' is only for visual reference. Does not change the result."))
-        self.show_mask.setToolTip(tip("Show the yellow outline of the cell mask. Everything inside the outline is "
-                                      "measured. Does not change the result."))
-        self.opacity.setToolTip(tip("Opacity of the mask outline (display only)."))
+        self.show_mask.setToolTip(tip("Show the cell mask. Everything inside it is measured. Display only."))
+        self.mask_style.setToolTip(tip("<b>Outline</b>: yellow contour only. <b>Fill</b>: translucent solid "
+                                       "yellow over the whole mask. <b>Outline + Fill</b>: both. Display only; "
+                                       "it does not change the result."))
+        self.opacity.setToolTip(tip("Opacity of the mask display. With Fill it controls how strongly the fill covers "
+                                    "the image (lower = see more of the image through it); with Outline alone it "
+                                    "controls the contour. Each style remembers its own value."))
         top = QHBoxLayout()
         top.addWidget(QLabel("View")); top.addWidget(self.view_combo); top.addWidget(self.show_mask)
+        top.addWidget(QLabel("Style")); top.addWidget(self.mask_style)
         top.addWidget(QLabel("Opacity")); top.addWidget(self.opacity); top.addStretch(1)
         self.grid_btn = QPushButton("Preview grid…")
         self.grid_btn.setToolTip("Apply the current parameters to all images (or one condition) side by side")
@@ -356,7 +365,18 @@ class MainWindow(QMainWindow):
         im = self._cache[self._cur]
         self.canvas.set_image(im.data, p.ch_red, p.ch_green, p.ch_bf, self.view_combo.currentText())
         mask = self._seg["mask"] if (self._seg is not None and self.show_mask.isChecked()) else None
-        self.canvas.set_mask(mask, self.opacity.value() / 100)
+        self.canvas.set_mask(mask, self.opacity.value() / 100, self.mask_style.currentText())
+
+    def _opacity_changed(self, v: int):
+        self._style_opacity[self.mask_style.currentText()] = v
+        self._redraw()
+
+    def _style_changed(self, style: str):
+        self._style_now = style
+        self.opacity.blockSignals(True)
+        self.opacity.setValue(self._style_opacity[style])      # each style keeps its own opacity
+        self.opacity.blockSignals(False)
+        self._redraw()
 
     # ----------------------------------------------------------------- batch
     def _pick_out(self):

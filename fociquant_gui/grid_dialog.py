@@ -42,6 +42,11 @@ class GridDialog(QDialog):
 
         self.cond_combo = QComboBox()
         self.view_combo = QComboBox(); self.view_combo.addItems(["Green", "Red", "Red + Green"])
+        self.style_combo = QComboBox(); self.style_combo.addItems(["Outline", "Fill", "Outline + Fill"])
+        self.style_combo.currentTextChanged.connect(lambda _: self._layout())
+        self.fill_op = QSpinBox(); self.fill_op.setRange(5, 100); self.fill_op.setValue(35); self.fill_op.setSuffix("%")
+        self.fill_op.setToolTip("Opacity of the fill")
+        self.fill_op.valueChanged.connect(lambda _: self._layout())
         self.cols = QSpinBox(); self.cols.setRange(1, 6); self.cols.setValue(3)
         self.refresh_btn = QPushButton("Recompute")
         self.cond_combo.currentTextChanged.connect(lambda _: self.recompute())
@@ -50,7 +55,7 @@ class GridDialog(QDialog):
         self.refresh_btn.clicked.connect(self.recompute)
         top = QHBoxLayout()
         for w in (QLabel("Condition"), self.cond_combo, QLabel("View"), self.view_combo,
-                  QLabel("Columns"), self.cols, self.refresh_btn):
+                  QLabel("Mask"), self.style_combo, self.fill_op, QLabel("Columns"), self.cols, self.refresh_btn):
             top.addWidget(w)
         top.addStretch(1)
 
@@ -118,7 +123,8 @@ class GridDialog(QDialog):
         by_cond: dict[str, list[float]] = {}
         for k, (f, c, im, p, row, mask) in enumerate(self._results):
             tile = _Tile()
-            pm = _pixmap(thumb_rgb(im, mask, p, view, step=2)).scaledToWidth(
+            pm = _pixmap(thumb_rgb(im, mask, p, view, step=2, style=self.style_combo.currentText(),
+                                fill_opacity=self.fill_op.value() / 100)).scaledToWidth(
                 width, Qt.TransformationMode.SmoothTransformation)
             tile.setPixmap(pm)
             tile.setCursor(Qt.CursorShape.PointingHandCursor)

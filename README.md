@@ -21,6 +21,7 @@ fociquant                        # launches the GUI   (or: python -m fociquant_g
    fluorescence channel, e.g. AF647 shown in green). Files without metadata: pick the channels by hand.
 3. Select an image and tune the **Cell mask** until the yellow contour follows the cells
    (the status line shows backgrounds, threshold, mask % and the resulting mean live).
+   The mask can be shown as **Outline**, **Fill** (translucent solid, adjustable opacity) or both (Style / Opacity above the image).
    Main knob: **Threshold k × noise** (lower = larger mask). Use *View → Red + Green* to sanity check.
    **Preview grid…** (top right) applies the current parameters to all images, or one condition, side by side with the
    mean of each; click a tile to open it in the main view.

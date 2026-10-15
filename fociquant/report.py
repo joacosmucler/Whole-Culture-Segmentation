@@ -24,8 +24,10 @@ def overlay_rgb(img, mask, p) -> np.ndarray:
     return (np.concatenate(tiles, 1) * 255).astype(np.uint8)
 
 
-def thumb_rgb(img, mask, p, view: str = "Green", step: int = 2) -> np.ndarray:
-    """Downsampled RGB preview (uint8) with the mask contour in yellow. view: Green | Red | Red + Green."""
+def thumb_rgb(img, mask, p, view: str = "Green", step: int = 2, style: str = "Outline",
+              fill_opacity: float = 0.35) -> np.ndarray:
+    """Downsampled RGB preview (uint8) with the mask in yellow. view: Green | Red | Red + Green;
+    style: Outline | Fill | Outline + Fill (fill blended with `fill_opacity`)."""
     from skimage.segmentation import find_boundaries
     d = img.data[:, ::step, ::step]
     pick = lambda i: d[min(i, d.shape[0] - 1)]            # noqa: E731
@@ -36,7 +38,12 @@ def thumb_rgb(img, mask, p, view: str = "Green", step: int = 2) -> np.ndarray:
         rgb = np.stack([r, g, np.zeros_like(r)], -1)
     else:
         g = _norm(pick(p.ch_green)); rgb = np.stack([g, g, g], -1)
-    rgb[find_boundaries(mask[::step, ::step], mode="inner")] = (1, 0.92, 0)
+    m = mask[::step, ::step]
+    yellow = np.array((1, 0.92, 0), np.float32)
+    if "Fill" in style:
+        rgb[m] = (1 - fill_opacity) * rgb[m] + fill_opacity * yellow
+    if "Outline" in style:
+        rgb[find_boundaries(m, mode="inner")] = yellow
     return (rgb * 255).astype(np.uint8)
 
 

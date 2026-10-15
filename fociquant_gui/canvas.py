@@ -60,16 +60,23 @@ class Canvas(pg.GraphicsLayoutWidget):
             self._first = False
         self._shape = data.shape[1:]
 
-    def set_mask(self, mask: np.ndarray | None, opacity: float = 0.9):
+    def set_mask(self, mask: np.ndarray | None, opacity: float = 0.9, style: str = "Outline"):
+        """style: Outline | Fill | Outline + Fill.
+        Opacity applies to the fill; in 'Outline' style it applies to the outline, and in
+        'Outline + Fill' the outline stays fully opaque so it remains readable over the fill."""
         if mask is None:
             self.mask_item.clear()
             return
-        from skimage.segmentation import find_boundaries
-        b = find_boundaries(mask, mode="inner")
         rgba = np.zeros(mask.shape + (4,), np.uint8)
-        rgba[b] = (255, 235, 0, 255)
+        rgba[..., :3] = (255, 235, 0)
+        a = int(round(255 * float(np.clip(opacity, 0, 1))))
+        if "Fill" in style:
+            rgba[mask, 3] = a
+        if "Outline" in style:
+            from skimage.segmentation import find_boundaries
+            rgba[find_boundaries(mask, mode="inner"), 3] = 255 if "Fill" in style else a
         self.mask_item.setImage(rgba, autoLevels=False)
-        self.mask_item.setOpacity(opacity)
+        self.mask_item.setOpacity(1.0)
 
     # -- background box --------------------------------------------------
     def show_roi(self, visible: bool, box: tuple | None = None):

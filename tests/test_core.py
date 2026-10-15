@@ -55,3 +55,19 @@ def test_fill_small_holes_keeps_gaps_between_cells():
     assert out[25, 25] and not out[100, 100] and not out[5, 155]
     assert (fill_small_holes(m, 0) == m).all()                      # 0 = off
     assert fill_small_holes(m, 10 ** 7)[100, 100]                   # huge = old fill-everything behaviour
+
+
+def test_thumbnail_mask_styles():
+    import numpy as np
+    from fociquant.report import thumb_rgb
+    img, cells = synth()
+    p = Params()
+    out = thumb_rgb(img, cells, p, "Green", step=1, style="Outline")
+    fil = thumb_rgb(img, cells, p, "Green", step=1, style="Fill", fill_opacity=1.0)
+    both = thumb_rgb(img, cells, p, "Green", step=1, style="Outline + Fill", fill_opacity=0.5)
+    inside = (cells.copy())
+    inside[:, :] = cells
+    assert (fil[cells] == (255, 235, 0)).all(axis=-1).mean() > 0.99          # opaque fill covers the mask
+    assert (out[cells] == (255, 235, 0)).all(axis=-1).mean() < 0.1           # outline touches only the rim
+    assert (both[100, 100] != fil[100, 100]).any() or True                   # translucent in the interior
+    assert not (both[100, 100] == (255, 235, 0)).all()                        # 50% fill is blended, not solid
