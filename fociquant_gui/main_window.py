@@ -1,0 +1,336 @@
+"""FociQuant main window: params | canvas | files + results."""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+from PyQt6.QtCore import QSettings, Qt, QTimer
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel,
+                             QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+                             QSlider, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
+                             QWidget)
+
+from fociquant.io import find_images, load_image
+from fociquant.pipeline import Params, analyze_image, run_batch
+
+from .canvas import VIEWS, Canvas
+from .params_panel import ParamsPanel
+from .worker import Worker
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("FociQuant — mean foci intensity in cells")
+        self.resize(1500, 950)
+        self.settings = QSettings("FociQuant", "FociQuant")
+        self.files: list[str] = []
+        self.conditions: dict[str, str] = {}
+        self.rois: dict[str, tuple] = {}
+        self._cache: dict[str, object] = {}
+        self._cur: str | None = None
+        self._gen = 0
+        self._worker: Worker | None = None
+        self._batch: Worker | None = None
+        self._last_out: Path | None = None
+
+        # ---- left: files + params ----
+        self.file_table = QTableWidget(0, 2)
+        self.file_table.setHorizontalHeaderLabels(["File", "Condition"])
+        self.file_table.horizontalHeader().setStretchLastSection(True)
+        self.file_table.setColumnWidth(0, 200)
+        self.file_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.file_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.file_table.verticalHeader().hide()
+        self.file_table.setMinimumHeight(170)
+        self.file_table.itemSelectionChanged.connect(self._on_select)
+        self.file_table.itemChanged.connect(self._on_cond_edit)
+        b_files = QPushButton("Add files…"); b_files.clicked.connect(self._add_files)
+        b_dir = QPushButton("Add folder…"); b_dir.clicked.connect(self._add_folder)
+        b_rm = QPushButton("Remove"); b_rm.clicked.connect(self._remove)
+        row = QHBoxLayout()
+        for b in (b_files, b_dir, b_rm):
+            row.addWidget(b)
+
+        self.params = ParamsPanel()
+        self.params.changed.connect(self._params_changed)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(self.params)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        b_save = QPushButton("Save params…"); b_save.clicked.connect(self._save_params)
+        b_load = QPushButton("Load params…"); b_load.clicked.connect(self._load_params)
+        prow = QHBoxLayout(); prow.addWidget(b_save); prow.addWidget(b_load)
+
+        left = QWidget(); lv = QVBoxLayout(left)
+        lv.addWidget(QLabel("INPUT")); lv.addWidget(self.file_table); lv.addLayout(row)
+        lv.addWidget(QLabel("PARAMETERS")); lv.addWidget(scroll, 1); lv.addLayout(prow)
+        left.setMinimumWidth(380)
+
+        # ---- center: view controls + canvas + status ----
+        self.view_combo = QComboBox(); self.view_combo.addItems(VIEWS)
+        self.view_combo.currentTextChanged.connect(lambda _: self._redraw())
+        self.show_mask = QCheckBox("Show mask"); self.show_mask.setChecked(True)
+        self.show_mask.toggled.connect(lambda _: self._redraw())
+        self.opacity = QSlider(Qt.Orientation.Horizontal); self.opacity.setRange(10, 100); self.opacity.setValue(90)
+        self.opacity.setMaximumWidth(120)
+        self.opacity.valueChanged.connect(lambda _: self._redraw())
+        top = QHBoxLayout()
+        top.addWidget(QLabel("View")); top.addWidget(self.view_combo); top.addWidget(self.show_mask)
+        top.addWidget(QLabel("Opacity")); top.addWidget(self.opacity); top.addStretch(1)
+
+        self.canvas = Canvas()
+        self.canvas.roi_changed.connect(self._roi_moved)
+        self.status = QLabel("Add images to begin.")
+        self.status.setWordWrap(True)
+
+        mid = QWidget(); mv = QVBoxLayout(mid)
+        mv.addLayout(top); mv.addWidget(self.canvas, 1); mv.addWidget(self.status)
+
+        # ---- right: output + results ----
+        self.out_edit = QLineEdit(self.settings.value("out_dir", str(Path.home() / "FociQuant_results")))
+        b_out = QPushButton("…"); b_out.setMaximumWidth(36); b_out.clicked.connect(self._pick_out)
+        orow = QHBoxLayout(); orow.addWidget(self.out_edit, 1); orow.addWidget(b_out)
+        self.qc_check = QCheckBox("Save masks + overlay images"); self.qc_check.setChecked(True)
+        self.run_btn = QPushButton("RUN BATCH"); self.run_btn.clicked.connect(self._run_batch)
+        self.run_btn.setMinimumHeight(40)
+        self.progress = QProgressBar(); self.progress.setValue(0)
+        self.open_btn = QPushButton("Open results folder"); self.open_btn.clicked.connect(self._open_out)
+        self.open_btn.setEnabled(False)
+        self.res_tabs = QTabWidget()
+        self.tbl_cond = QTableWidget(); self.tbl_img = QTableWidget()
+        self.plot_lbl = QLabel("No results yet."); self.plot_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.res_tabs.addTab(self.tbl_cond, "By condition")
+        self.res_tabs.addTab(self.tbl_img, "Per image")
+        self.res_tabs.addTab(self.plot_lbl, "Plot")
+        right = QWidget(); rv = QVBoxLayout(right)
+        rv.addWidget(QLabel("OUTPUT FOLDER")); rv.addLayout(orow); rv.addWidget(self.qc_check)
+        rv.addWidget(self.run_btn); rv.addWidget(self.progress); rv.addWidget(self.res_tabs, 1)
+        rv.addWidget(self.open_btn)
+        right.setMinimumWidth(340)
+
+        sp = QSplitter(); sp.addWidget(left); sp.addWidget(mid); sp.addWidget(right)
+        sp.setSizes([400, 760, 380]); sp.setStretchFactor(1, 1)
+        self.setCentralWidget(sp)
+
+        self._timer = QTimer(self); self._timer.setSingleShot(True); self._timer.setInterval(250)
+        self._timer.timeout.connect(self._recompute)
+        self._seg: dict | None = None
+        self._row: dict | None = None
+
+        self._restore_params()
+
+    # ------------------------------------------------------------- settings
+    def _restore_params(self):
+        s = self.settings.value("params")
+        if s:
+            try:
+                self.params.set_params(Params.from_json(s))
+            except Exception:
+                pass
+
+    def closeEvent(self, e):
+        self.settings.setValue("params", self.params.get_params().to_json())
+        self.settings.setValue("out_dir", self.out_edit.text())
+        super().closeEvent(e)
+
+    def _save_params(self):
+        f, _ = QFileDialog.getSaveFileName(self, "Save parameters", "params.json", "JSON (*.json)")
+        if f:
+            Path(f).write_text(self.params.get_params().to_json())
+
+    def _load_params(self):
+        f, _ = QFileDialog.getOpenFileName(self, "Load parameters", "", "JSON (*.json)")
+        if f:
+            self.params.set_params(Params.from_json(Path(f).read_text()))
+
+    # ----------------------------------------------------------------- files
+    def _add_paths(self, paths):
+        for p in paths:
+            p = str(p)
+            if p in self.files:
+                continue
+            self.files.append(p)
+            self.conditions[p] = Path(p).parent.name
+        self._refresh_table()
+        if self.files and self._cur is None:
+            self.file_table.selectRow(0)
+
+    def _add_files(self):
+        fs, _ = QFileDialog.getOpenFileNames(self, "Add images", self.settings.value("last_dir", ""),
+                                             "Images (*.tif *.tiff *.czi)")
+        if fs:
+            self.settings.setValue("last_dir", str(Path(fs[0]).parent))
+            self._add_paths(fs)
+
+    def _add_folder(self):
+        d = QFileDialog.getExistingDirectory(self, "Add folder (searched recursively)", self.settings.value("last_dir", ""))
+        if d:
+            self.settings.setValue("last_dir", d)
+            self._add_paths(find_images(d))
+
+    def _remove(self):
+        r = self.file_table.currentRow()
+        if r < 0:
+            return
+        f = self.files.pop(r)
+        self.conditions.pop(f, None); self.rois.pop(f, None); self._cache.pop(f, None)
+        self._cur = None
+        self._refresh_table()
+        if self.files:
+            self.file_table.selectRow(min(r, len(self.files) - 1))
+
+    def _refresh_table(self):
+        self.file_table.blockSignals(True)
+        self.file_table.setRowCount(len(self.files))
+        for i, f in enumerate(self.files):
+            it = QTableWidgetItem(Path(f).name); it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            it.setToolTip(f)
+            self.file_table.setItem(i, 0, it)
+            self.file_table.setItem(i, 1, QTableWidgetItem(self.conditions[f]))
+        self.file_table.blockSignals(False)
+
+    def _on_cond_edit(self, item):
+        if item.column() == 1 and 0 <= item.row() < len(self.files):
+            self.conditions[self.files[item.row()]] = item.text()
+
+    def _on_select(self):
+        r = self.file_table.currentRow()
+        if r < 0 or r >= len(self.files):
+            return
+        f = self.files[r]
+        self._cur = f
+        if f not in self._cache:
+            try:
+                self._cache[f] = load_image(f)[0]
+            except Exception as e:  # noqa: BLE001
+                QMessageBox.warning(self, "Could not open image", f"{f}\n\n{e}")
+                return
+        im = self._cache[f]
+        H, W = im.data.shape[1:]
+        if f not in self.rois:
+            self.rois[f] = (10, 10, min(110, W), min(110, H))
+        self.canvas.show_roi(self.params.uses_roi(), self.rois[f])
+        self._seg = None
+        self._redraw()
+        self._timer.start()
+
+    # ---------------------------------------------------------- live preview
+    def _params_changed(self):
+        self.canvas.show_roi(self.params.uses_roi())
+        self._timer.start()
+
+    def _roi_moved(self, box):
+        if self._cur:
+            self.rois[self._cur] = box
+        self._timer.start()
+
+    def _current_params(self, f: str) -> Params:
+        p = self.params.get_params()
+        if self.params.uses_roi() and f in self.rois:
+            p = replace(p, g_bg_roi=self.rois[f], r_bg_roi=self.rois[f])
+        return p
+
+    def _recompute(self):
+        f = self._cur
+        if not f or f not in self._cache:
+            return
+        if self._worker is not None and self._worker.isRunning():
+            self._timer.start()               # try again once the running job is done
+            return
+        im, p = self._cache[f], self._current_params(f)
+        self._gen += 1
+        gen = self._gen
+        self.status.setText("Computing…")
+        w = Worker(lambda progress: analyze_image(im, p))
+        w.result.connect(lambda res, g=gen, ff=f: self._on_result(res, g, ff))
+        w.failed.connect(lambda msg: self.status.setText(f"Error: {msg.splitlines()[0]}"))
+        self._worker = w
+        w.start()
+
+    def _on_result(self, res, gen, f):
+        if f != self._cur:
+            self._timer.start()
+            return
+        row, seg = res
+        self._row, self._seg = row, seg
+        self._redraw()
+        self.status.setText(
+            f"green bg {row['bg_green']:.0f}  →  threshold {row['threshold_green']:.0f}   |   red bg {row['bg_red']:.1f}   |   "
+            f"mask {100 * row['mask_fraction']:.1f}% of field   |   "
+            f"mean red (bg-subtracted) in cells: {row['mean_bgsub']:.2f}   (raw {row['mean_raw']:.1f})")
+
+    def _redraw(self):
+        if not self._cur or self._cur not in self._cache:
+            return
+        p = self.params.get_params()
+        im = self._cache[self._cur]
+        self.canvas.set_image(im.data, p.ch_red, p.ch_green, p.ch_bf, self.view_combo.currentText())
+        mask = self._seg["mask"] if (self._seg is not None and self.show_mask.isChecked()) else None
+        self.canvas.set_mask(mask, self.opacity.value() / 100)
+
+    # ----------------------------------------------------------------- batch
+    def _pick_out(self):
+        d = QFileDialog.getExistingDirectory(self, "Output folder", self.out_edit.text())
+        if d:
+            self.out_edit.setText(d)
+
+    def _run_batch(self):
+        if not self.files:
+            QMessageBox.information(self, "No images", "Add images first.")
+            return
+        if self._batch is not None and self._batch.isRunning():
+            return
+        p = replace(self.params.get_params(), save_qc=self.qc_check.isChecked())
+        out = Path(self.out_edit.text())
+        files, conds = list(self.files), dict(self.conditions)
+        rois = None
+        if self.params.uses_roi():          # files never previewed get the default box
+            rois = {f: self.rois.get(f, (10, 10, 110, 110)) for f in files}
+        self.run_btn.setEnabled(False); self.progress.setValue(0)
+        w = Worker(lambda progress: run_batch(files, p, out, progress, conds, rois))
+        w.progress.connect(lambda m, pc: (self.progress.setValue(max(pc, 0)), self.status.setText(f"Batch: {m}")))
+        w.result.connect(lambda df, o=out: self._batch_done(df, o))
+        w.failed.connect(self._batch_failed)
+        self._batch = w
+        w.start()
+
+    def _batch_failed(self, msg):
+        self.run_btn.setEnabled(True)
+        QMessageBox.critical(self, "Batch failed", msg[:2000])
+
+    def _batch_done(self, df, out: Path):
+        import pandas as pd
+        self.run_btn.setEnabled(True); self.progress.setValue(100)
+        self._last_out = out; self.open_btn.setEnabled(True)
+        self._fill(self.tbl_img, df)
+        self._fill(self.tbl_cond, pd.read_csv(out / "per_condition.csv"))
+        png = out / "summary_plot.png"
+        if png.exists():
+            from PyQt6.QtGui import QPixmap
+            pm = QPixmap(str(png))
+            self.plot_lbl.setPixmap(pm.scaledToWidth(max(self.plot_lbl.width(), 320),
+                                                     Qt.TransformationMode.SmoothTransformation))
+        self.res_tabs.setCurrentIndex(0)
+        self.status.setText(f"Done — {len(df)} images → {out}")
+
+    @staticmethod
+    def _fill(tbl: QTableWidget, df):
+        tbl.setRowCount(len(df)); tbl.setColumnCount(len(df.columns))
+        tbl.setHorizontalHeaderLabels([str(c) for c in df.columns])
+        for i, (_, r) in enumerate(df.iterrows()):
+            for j, v in enumerate(r):
+                tbl.setItem(i, j, QTableWidgetItem(f"{v:.2f}" if isinstance(v, float) else str(v)))
+        tbl.resizeColumnsToContents()
+
+    def _open_out(self):
+        if self._last_out:
+            if sys.platform == "darwin":
+                subprocess.run(["open", str(self._last_out)])
+            elif os.name == "nt":
+                os.startfile(str(self._last_out))  # type: ignore[attr-defined]
+            else:
+                subprocess.run(["xdg-open", str(self._last_out)])

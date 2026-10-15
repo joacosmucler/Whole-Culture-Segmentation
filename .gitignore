@@ -1,0 +1,9 @@
+*.tif
+*.tiff
+*.czi
+CF/
+CM*/
+results/
+__pycache__/
+*.egg-info/
+.DS_Store

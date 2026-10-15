@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fociquant"
+version = "0.1.0"
+description = "Mean foci-channel intensity inside cells (green-membrane mask), with batch GUI"
+requires-python = ">=3.10"
+dependencies = ["numpy", "scipy", "scikit-image", "tifffile", "pandas", "matplotlib"]
+
+[project.optional-dependencies]
+gui = ["pyqt6", "pyqtgraph"]
+czi = ["aicspylibczi"]
+dev = ["pytest"]
+
+[project.scripts]
+fociquant = "fociquant_gui.app:main"
+fociquant-batch = "fociquant.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fociquant*", "fociquant_gui*"]
