@@ -51,3 +51,14 @@ class Worker(QThread):
             self.done.emit()
         except Exception as e:  # noqa: BLE001
             self.failed.emit(f"{e}\n\n{traceback.format_exc()}")
+
+
+def is_running(w: "Worker | None") -> bool:
+    """True if the worker exists and its thread is alive. A finished Worker deletes its C++ object
+    (deleteLater), so touching it raises RuntimeError — that means 'not running'."""
+    if w is None:
+        return False
+    try:
+        return w.isRunning()
+    except RuntimeError:
+        return False

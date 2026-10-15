@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QGridLayout, QHBoxLayout, QLabe
 from fociquant.pipeline import analyze_image
 from fociquant.report import thumb_rgb
 
-from .worker import Worker
+from .worker import Worker, is_running
 
 
 class _Tile(QLabel):
@@ -74,7 +74,7 @@ class GridDialog(QDialog):
         self.recompute()
 
     def recompute(self):
-        if self._worker is not None and self._worker.isRunning():
+        if is_running(self._worker):
             return
         sel = self.cond_combo.currentText()
         files = [f for f in self._files() if sel in ("All", "") or self._cond(f) == sel]

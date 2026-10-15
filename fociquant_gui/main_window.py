@@ -22,7 +22,7 @@ from fociquant.channels import guess_roles
 from .canvas import VIEWS, Canvas
 from .grid_dialog import GridDialog
 from .params_panel import ParamsPanel
-from .worker import Worker
+from .worker import Worker, is_running
 
 
 class MainWindow(QMainWindow):
@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
         f = self._cur
         if not f or f not in self._cache:
             return
-        if self._worker is not None and self._worker.isRunning():
+        if is_running(self._worker):
             self._timer.start()               # try again once the running job is done
             return
         im, p = self._cache[f], self._current_params(f)
@@ -332,7 +332,7 @@ class MainWindow(QMainWindow):
         if not self.files:
             QMessageBox.information(self, "No images", "Add images first.")
             return
-        if self._batch is not None and self._batch.isRunning():
+        if is_running(self._batch):
             return
         p = replace(self.params.get_params(), save_qc=self.qc_check.isChecked())
         out = Path(self.out_edit.text())
