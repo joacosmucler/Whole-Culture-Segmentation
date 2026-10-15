@@ -10,12 +10,12 @@ import numpy as np
 from .background import estimate_bg
 from .io import Image, load_image
 from .measure import measure, red_background
-from .segment import bf_texture_mask, combine, green_mask
+from .segment import green_mask
 
 
 @dataclass
 class Params:
-    # channels (index into the CYX stack)
+    # channels (index into the CYX stack); ch_bf is only used for the brightfield *view*
     ch_red: int = 0
     ch_bf: int = 1
     ch_green: int = 2
@@ -30,13 +30,8 @@ class Params:
     thr_offset: float = 0.0
     n_erode: int = 2
     close_radius: int = 3
+    fill_holes_max: int = 1000         # fill enclosed holes up to this many px (0 = off)
     min_size: int = 200
-    # brightfield refinement
-    use_bf: bool = False
-    bf_window: int = 15
-    bf_method: str = "otsu"            # otsu | median
-    bf_factor: float = 1.5
-    bf_combine: str = "and"            # and | or
     # red background
     r_bg_method: str = "outside"       # outside | mode | percentile | roi | fixed
     r_bg_margin: int = 10
@@ -65,14 +60,10 @@ def segment_image(img: Image, p: Params) -> dict:
     green = img.data[p.ch_green]
     bg_g = estimate_bg(green, p.g_bg_method, percentile=p.g_bg_percentile,
                        fixed=p.g_bg_fixed, roi=p.g_bg_roi)
-    gm, thr = green_mask(green, bg_g, sigma=p.sigma, k_sigma=p.k_sigma, factor=p.thr_factor, offset=p.thr_offset,
-                         n_erode=p.n_erode, close_radius=p.close_radius, min_size=p.min_size)
-    bm = None
-    if p.use_bf:
-        bm = bf_texture_mask(img.data[p.ch_bf], window=p.bf_window, method=p.bf_method,
-                             factor=p.bf_factor, close_radius=p.close_radius, min_size=p.min_size)
-    mask = combine(gm, bm, p.bf_combine)
-    return dict(mask=mask, green_mask=gm, bf_mask=bm, bg_g=bg_g, thr=thr)
+    mask, thr = green_mask(green, bg_g, sigma=p.sigma, k_sigma=p.k_sigma, factor=p.thr_factor, offset=p.thr_offset,
+                           n_erode=p.n_erode, close_radius=p.close_radius, fill_max=p.fill_holes_max,
+                           min_size=p.min_size)
+    return dict(mask=mask, bg_g=bg_g, thr=thr)
 
 
 def analyze_image(img: Image, p: Params) -> tuple[dict, dict]:

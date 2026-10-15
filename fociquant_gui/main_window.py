@@ -21,7 +21,7 @@ from fociquant.channels import guess_roles
 
 from .canvas import VIEWS, Canvas
 from .grid_dialog import GridDialog
-from .params_panel import ParamsPanel
+from .params_panel import ParamsPanel, tip
 from .worker import Worker, is_running
 
 
@@ -59,6 +59,10 @@ class MainWindow(QMainWindow):
         for b in (b_files, b_dir, b_rm):
             row.addWidget(b)
 
+        self.file_table.setToolTip(tip("Images to process. Click a row to preview it. <b>Condition</b> (editable, "
+                                       "defaults to the parent folder) groups images in the summary table and plot."))
+        b_files.setToolTip(tip("Add one or more TIFF / CZI files.")); b_dir.setToolTip(tip("Add every TIFF / CZI inside a folder (recursive)."))
+        b_rm.setToolTip(tip("Remove the selected image from the list (the file on disk is not touched)."))
         self.params = ParamsPanel()
         self.params.changed.connect(self._params_changed)
         self.params.autodetect_requested.connect(self._autodetect)
@@ -68,9 +72,12 @@ class MainWindow(QMainWindow):
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
 
         b_save = QPushButton("Save params…"); b_save.clicked.connect(self._save_params)
+        b_save.setToolTip(tip("Save the current parameters to a JSON file (the batch also saves them as params.json)."))
         b_load = QPushButton("Load params…"); b_load.clicked.connect(self._load_params)
+        b_load.setToolTip(tip("Load parameters from a JSON file, e.g. the params.json of a previous run."))
         b_reset = QPushButton("Reset defaults")
-        b_reset.setToolTip("Back to the default parameters (channels are re-read from the file metadata)")
+        b_reset.setToolTip(tip("Back to the default parameters (channels are re-read from the file metadata). "
+                               "Use it if the mask looks empty or wrong after experimenting."))
         b_reset.clicked.connect(self._reset_params)
         prow = QHBoxLayout(); prow.addWidget(b_save); prow.addWidget(b_load); prow.addWidget(b_reset)
 
@@ -87,6 +94,11 @@ class MainWindow(QMainWindow):
         self.opacity = QSlider(Qt.Orientation.Horizontal); self.opacity.setRange(10, 100); self.opacity.setValue(90)
         self.opacity.setMaximumWidth(120)
         self.opacity.valueChanged.connect(lambda _: self._redraw())
+        self.view_combo.setToolTip(tip("Which channel to display. 'Red + Green' overlays foci and membrane; "
+                                       "'Brightfield' is only for visual reference. Does not change the result."))
+        self.show_mask.setToolTip(tip("Show the yellow outline of the cell mask. Everything inside the outline is "
+                                      "measured. Does not change the result."))
+        self.opacity.setToolTip(tip("Opacity of the mask outline (display only)."))
         top = QHBoxLayout()
         top.addWidget(QLabel("View")); top.addWidget(self.view_combo); top.addWidget(self.show_mask)
         top.addWidget(QLabel("Opacity")); top.addWidget(self.opacity); top.addStretch(1)
@@ -98,6 +110,9 @@ class MainWindow(QMainWindow):
         self.canvas = Canvas()
         self.canvas.roi_changed.connect(self._roi_moved)
         self.status = QLabel("Add images to begin.")
+        self.status.setToolTip(tip("Live readout for the selected image: green background and the threshold derived "
+                                   "from it, red background, mask size, and the result (mean red inside cells minus "
+                                   "red background)."))
         self.status.setWordWrap(True)
 
         mid = QWidget(); mv = QVBoxLayout(mid)
@@ -108,8 +123,13 @@ class MainWindow(QMainWindow):
         b_out = QPushButton("…"); b_out.setMaximumWidth(36); b_out.clicked.connect(self._pick_out)
         orow = QHBoxLayout(); orow.addWidget(self.out_edit, 1); orow.addWidget(b_out)
         self.qc_check = QCheckBox("Save masks + overlay images"); self.qc_check.setChecked(True)
+        self.qc_check.setToolTip(tip("Also writes, for every image, the binary mask (TIFF) and a PNG with the "
+                                     "outline on the red and green channels, so each measurement can be audited."))
+        self.out_edit.setToolTip(tip("Folder where the CSVs, plot, params.json, masks and overlays are written."))
         self.run_btn = QPushButton("RUN BATCH"); self.run_btn.clicked.connect(self._run_batch)
         self.run_btn.setMinimumHeight(40)
+        self.run_btn.setToolTip(tip("Apply the current parameters to every image in the list and write the results "
+                                    "(per-image CSV, per-condition CSV, plot, masks, overlays)."))
         self.progress = QProgressBar(); self.progress.setValue(0)
         self.open_btn = QPushButton("Open results folder"); self.open_btn.clicked.connect(self._open_out)
         self.open_btn.setEnabled(False)

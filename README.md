@@ -24,15 +24,16 @@ fociquant                        # launches the GUI   (or: python -m fociquant_g
    Main knob: **Threshold k × noise** (lower = larger mask). Use *View → Red + Green* to sanity check.
    **Preview grid…** (top right) applies the current parameters to all images, or one condition, side by side with the
    mean of each; click a tile to open it in the main view.
-4. Optional: tick **Use brightfield** (`and` removes green junk, `or` recovers dim cells).
-   Backgrounds can be overridden: choose method **roi** and drag the teal box over an empty area, or **fixed**.
+4. Backgrounds can be overridden: choose method **roi** and drag the teal box over an empty area, or **fixed**.
+   **Hover any parameter (or its name) for a short explanation of what raising or lowering it does.**
 5. Pick an output folder and press **RUN BATCH**.
 
 ## What is computed
 
 1. Green background `bg_g` (default *floor*: peak of the darkest 20 % of pixels; robust when cells fill the field) and its noise σ.
-2. Mask = Gaussian-smoothed green > `bg_g·factor + offset + k·σ` → erosions → closing → fill holes → drop small objects
-   (→ optional brightfield texture mask, AND/OR).
+2. Mask = Gaussian-smoothed green > `bg_g·factor + offset + k·σ` → erosions → closing → fill small holes → drop small objects
+   Holes are filled only up to **Fill holes up to (px)** (default 1000, about one nucleus): nuclei inside a cell are
+   filled, but empty gaps between cells stay background.
 3. Red background `bg_r` = median of red outside the mask (+ margin) by default.
 4. `mean_bgsub = mean(red[mask]) − bg_r`. (Watershed is not needed: splitting touching cells does not change the pooled mean.)
 
@@ -44,6 +45,8 @@ Headless: `fociquant-batch FOLDER_OR_FILES... --params params.json --out results
 
 ## Notes
 
+- Brightfield is displayed for reference only (View → Brightfield). A texture-based brightfield mask was tried and
+  removed: with DIC-like brightfield the local texture does not follow the cells.
 - Multi-scene CZI: the GUI previews scene 0; the batch processes all scenes.
 - Tests: `pytest tests`.
 - `fociquant_gui/theme.py` and `worker.py` are copied from the SIIC project.

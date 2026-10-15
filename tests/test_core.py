@@ -35,11 +35,23 @@ def test_manual_overrides():
 
 
 def test_params_json_roundtrip():
-    p = Params(k_sigma=4.0, g_bg_roi=(1, 2, 3, 4), use_bf=True)
+    p = Params(k_sigma=4.0, g_bg_roi=(1, 2, 3, 4), fill_holes_max=123)
     assert Params.from_json(p.to_json()) == p
 
 
-def test_bf_refinement_runs():
-    img, _ = synth()
-    row, seg = analyze_image(img, Params(use_bf=True, bf_combine="or"))
-    assert seg["bf_mask"] is not None
+def test_old_params_with_brightfield_keys_still_load():
+    old = '{"k_sigma": 3.0, "use_bf": true, "bf_window": 15, "bf_combine": "and"}'
+    assert Params.from_json(old).k_sigma == 3.0
+
+
+def test_fill_small_holes_keeps_gaps_between_cells():
+    import numpy as np
+    from fociquant.segment import fill_small_holes
+    m = np.ones((200, 200), bool)
+    m[20:30, 20:30] = False            # 100 px hole inside a cell  -> filled
+    m[80:140, 80:140] = False          # 3600 px gap between cells  -> kept
+    m[0:10, 150:160] = False           # touches the border         -> never a hole
+    out = fill_small_holes(m, 1000)
+    assert out[25, 25] and not out[100, 100] and not out[5, 155]
+    assert (fill_small_holes(m, 0) == m).all()                      # 0 = off
+    assert fill_small_holes(m, 10 ** 7)[100, 100]                   # huge = old fill-everything behaviour
