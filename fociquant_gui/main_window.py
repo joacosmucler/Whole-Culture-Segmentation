@@ -69,7 +69,10 @@ class MainWindow(QMainWindow):
 
         b_save = QPushButton("Save params…"); b_save.clicked.connect(self._save_params)
         b_load = QPushButton("Load params…"); b_load.clicked.connect(self._load_params)
-        prow = QHBoxLayout(); prow.addWidget(b_save); prow.addWidget(b_load)
+        b_reset = QPushButton("Reset defaults")
+        b_reset.setToolTip("Back to the default parameters (channels are re-read from the file metadata)")
+        b_reset.clicked.connect(self._reset_params)
+        prow = QHBoxLayout(); prow.addWidget(b_save); prow.addWidget(b_load); prow.addWidget(b_reset)
 
         left = QWidget(); lv = QVBoxLayout(left)
         lv.addWidget(QLabel("INPUT")); lv.addWidget(self.file_table); lv.addLayout(row)
@@ -146,6 +149,12 @@ class MainWindow(QMainWindow):
         self.settings.setValue("params", self.params.get_params().to_json())
         self.settings.setValue("out_dir", self.out_edit.text())
         super().closeEvent(e)
+
+    def _reset_params(self):
+        self.params.set_params(Params())
+        im = self._cache.get(self._cur) if self._cur else None
+        if im is not None and im.channels:
+            self._autodetect()
 
     def _save_params(self):
         f, _ = QFileDialog.getSaveFileName(self, "Save parameters", "params.json", "JSON (*.json)")
@@ -308,8 +317,15 @@ class MainWindow(QMainWindow):
         row, seg = res
         self._row, self._seg = row, seg
         self._redraw()
+        frac = row["mask_fraction"]
+        warn = ""
+        if frac < 0.01:
+            warn = ("⚠ MASK IS EMPTY — lower 'Threshold k × noise' or the erosions, or check the green background "
+                    "(method 'roi' needs the teal box on an empty area; 'Reset defaults' restores a working setup).  ")
+        elif frac > 0.95:
+            warn = "⚠ Mask covers almost the whole field — raise 'Threshold k × noise'.  "
         self.status.setText(
-            f"green bg {row['bg_green']:.0f}  →  threshold {row['threshold_green']:.0f}   |   red bg {row['bg_red']:.1f}   |   "
+            warn + f"green bg {row['bg_green']:.0f}  →  threshold {row['threshold_green']:.0f}   |   red bg {row['bg_red']:.1f}   |   "
             f"mask {100 * row['mask_fraction']:.1f}% of field   |   "
             f"mean red (bg-subtracted) in cells: {row['mean_bgsub']:.2f}   (raw {row['mean_raw']:.1f})")
 
