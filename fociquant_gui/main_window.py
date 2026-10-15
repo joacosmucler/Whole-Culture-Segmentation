@@ -1,24 +1,22 @@
-"""FociQuant main window: params | canvas | files + results."""
+"""FociQuant main window: tab 1 Tune (files | parameters | canvas), tab 2 Batch & Plot."""
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 from dataclasses import replace
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings, Qt, QTimer
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel,
-                             QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
-                             QSlider, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
-                             QWidget)
+                             QMainWindow, QMessageBox, QPushButton, QScrollArea, QSlider, QSplitter, QTableWidget,
+                             QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from fociquant.io import find_images, load_image
-from fociquant.pipeline import Params, analyze_image, run_batch
+from fociquant.pipeline import Params, analyze_image
 
 from fociquant.channels import guess_roles
 
+from .batch_panel import BatchPanel
 from .canvas import VIEWS, Canvas
 from .grid_dialog import GridDialog
 from .params_panel import ParamsPanel, tip
@@ -38,14 +36,13 @@ class MainWindow(QMainWindow):
         self._cur: str | None = None
         self._gen = 0
         self._worker: Worker | None = None
-        self._batch: Worker | None = None
-        self._last_out: Path | None = None
 
         # ---- left: files + params ----
         self.file_table = QTableWidget(0, 2)
         self.file_table.setHorizontalHeaderLabels(["File", "Condition"])
         self.file_table.horizontalHeader().setStretchLastSection(True)
-        self.file_table.setColumnWidth(0, 200)
+        self.file_table.setColumnWidth(0, 230)
+        self.file_table.setTextElideMode(Qt.TextElideMode.ElideMiddle)   # keep the distinguishing '#02' visible
         self.file_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.file_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.file_table.verticalHeader().hide()
@@ -127,36 +124,18 @@ class MainWindow(QMainWindow):
         mid = QWidget(); mv = QVBoxLayout(mid)
         mv.addLayout(top); mv.addWidget(self.canvas, 1); mv.addWidget(self.status)
 
-        # ---- right: output + results ----
-        self.out_edit = QLineEdit(self.settings.value("out_dir", str(Path.home() / "FociQuant_results")))
-        b_out = QPushButton("…"); b_out.setMaximumWidth(36); b_out.clicked.connect(self._pick_out)
-        orow = QHBoxLayout(); orow.addWidget(self.out_edit, 1); orow.addWidget(b_out)
-        self.qc_check = QCheckBox("Save masks + overlay images"); self.qc_check.setChecked(True)
-        self.qc_check.setToolTip(tip("Also writes, for every image, the binary mask (TIFF) and a PNG with the "
-                                     "outline on the red and green channels, so each measurement can be audited."))
-        self.out_edit.setToolTip(tip("Folder where the CSVs, plot, params.json, masks and overlays are written."))
-        self.run_btn = QPushButton("RUN BATCH"); self.run_btn.clicked.connect(self._run_batch)
-        self.run_btn.setMinimumHeight(40)
-        self.run_btn.setToolTip(tip("Apply the current parameters to every image in the list and write the results "
-                                    "(per-image CSV, per-condition CSV, plot, masks, overlays)."))
-        self.progress = QProgressBar(); self.progress.setValue(0)
-        self.open_btn = QPushButton("Open results folder"); self.open_btn.clicked.connect(self._open_out)
-        self.open_btn.setEnabled(False)
-        self.res_tabs = QTabWidget()
-        self.tbl_cond = QTableWidget(); self.tbl_img = QTableWidget()
-        self.plot_lbl = QLabel("No results yet."); self.plot_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.res_tabs.addTab(self.tbl_cond, "By condition")
-        self.res_tabs.addTab(self.tbl_img, "Per image")
-        self.res_tabs.addTab(self.plot_lbl, "Plot")
-        right = QWidget(); rv = QVBoxLayout(right)
-        rv.addWidget(QLabel("OUTPUT FOLDER")); rv.addLayout(orow); rv.addWidget(self.qc_check)
-        rv.addWidget(self.run_btn); rv.addWidget(self.progress); rv.addWidget(self.res_tabs, 1)
-        rv.addWidget(self.open_btn)
-        right.setMinimumWidth(340)
-
-        sp = QSplitter(); sp.addWidget(left); sp.addWidget(mid); sp.addWidget(right)
-        sp.setSizes([400, 760, 380]); sp.setStretchFactor(1, 1)
-        self.setCentralWidget(sp)
+        # ---- tab 1: Tune (files | parameters | canvas)  ·  tab 2: Batch & Plot ----
+        tune = QSplitter(); tune.addWidget(left); tune.addWidget(mid)
+        tune.setSizes([420, 1080]); tune.setStretchFactor(1, 1)
+        self.batch = BatchPanel(self._batch_context, self.settings)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(tune, "1 · Tune parameters")
+        self.tabs.addTab(self.batch, "2 · Batch && Plot")
+        self.tabs.setToolTip(tip("<b>1 · Tune</b>: pick images, adjust parameters and check the mask on single "
+                                 "images. <b>2 · Batch &amp; Plot</b>: run the tuned parameters on all images, "
+                                 "see the tables and the plot."))
+        self.tabs.currentChanged.connect(lambda i: self.batch.refresh() if i == 1 else None)
+        self.setCentralWidget(self.tabs)
 
         self._timer = QTimer(self); self._timer.setSingleShot(True); self._timer.setInterval(250)
         self._timer.timeout.connect(self._recompute)
@@ -176,7 +155,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e):
         self.settings.setValue("params", self.params.get_params().to_json())
-        self.settings.setValue("out_dir", self.out_edit.text())
+        self.batch.save_settings()
         super().closeEvent(e)
 
     def _reset_params(self):
@@ -378,65 +357,8 @@ class MainWindow(QMainWindow):
         self.opacity.blockSignals(False)
         self._redraw()
 
-    # ----------------------------------------------------------------- batch
-    def _pick_out(self):
-        d = QFileDialog.getExistingDirectory(self, "Output folder", self.out_edit.text())
-        if d:
-            self.out_edit.setText(d)
-
-    def _run_batch(self):
-        if not self.files:
-            QMessageBox.information(self, "No images", "Add images first.")
-            return
-        if is_running(self._batch):
-            return
-        p = replace(self.params.get_params(), save_qc=self.qc_check.isChecked())
-        out = Path(self.out_edit.text())
-        files, conds = list(self.files), dict(self.conditions)
-        rois = None
-        if self.params.uses_roi():          # files never previewed get the default box
-            rois = {f: self.rois.get(f, (10, 10, 110, 110)) for f in files}
-        self.run_btn.setEnabled(False); self.progress.setValue(0)
-        w = Worker(lambda progress: run_batch(files, p, out, progress, conds, rois))
-        w.progress.connect(lambda m, pc: (self.progress.setValue(max(pc, 0)), self.status.setText(f"Batch: {m}")))
-        w.result.connect(lambda df, o=out: self._batch_done(df, o))
-        w.failed.connect(self._batch_failed)
-        self._batch = w
-        w.start()
-
-    def _batch_failed(self, msg):
-        self.run_btn.setEnabled(True)
-        QMessageBox.critical(self, "Batch failed", msg[:2000])
-
-    def _batch_done(self, df, out: Path):
-        import pandas as pd
-        self.run_btn.setEnabled(True); self.progress.setValue(100)
-        self._last_out = out; self.open_btn.setEnabled(True)
-        self._fill(self.tbl_img, df)
-        self._fill(self.tbl_cond, pd.read_csv(out / "per_condition.csv"))
-        png = out / "summary_plot.png"
-        if png.exists():
-            from PyQt6.QtGui import QPixmap
-            pm = QPixmap(str(png))
-            self.plot_lbl.setPixmap(pm.scaledToWidth(max(self.plot_lbl.width(), 320),
-                                                     Qt.TransformationMode.SmoothTransformation))
-        self.res_tabs.setCurrentIndex(0)
-        self.status.setText(f"Done — {len(df)} images → {out}")
-
-    @staticmethod
-    def _fill(tbl: QTableWidget, df):
-        tbl.setRowCount(len(df)); tbl.setColumnCount(len(df.columns))
-        tbl.setHorizontalHeaderLabels([str(c) for c in df.columns])
-        for i, (_, r) in enumerate(df.iterrows()):
-            for j, v in enumerate(r):
-                tbl.setItem(i, j, QTableWidgetItem(f"{v:.2f}" if isinstance(v, float) else str(v)))
-        tbl.resizeColumnsToContents()
-
-    def _open_out(self):
-        if self._last_out:
-            if sys.platform == "darwin":
-                subprocess.run(["open", str(self._last_out)])
-            elif os.name == "nt":
-                os.startfile(str(self._last_out))  # type: ignore[attr-defined]
-            else:
-                subprocess.run(["xdg-open", str(self._last_out)])
+    # ------------------------------------------------------- hand-over to tab 2
+    def _batch_context(self) -> dict:
+        """What the Batch tab needs from the Tune tab: images, conditions, current parameters, bg boxes."""
+        return dict(files=list(self.files), conditions=dict(self.conditions), params=self.params.get_params(),
+                    rois_seen=dict(self.rois), uses_roi=self.params.uses_roi())

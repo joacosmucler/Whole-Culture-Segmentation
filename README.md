@@ -11,7 +11,9 @@ pip install -e ".[gui,czi]"      # czi extra only needed for raw .czi files
 fociquant                        # launches the GUI   (or: python -m fociquant_gui.app)
 ```
 
-## Using the GUI (5 steps)
+## Using the GUI — two tabs
+
+**Tab 1 · Tune parameters** (single images, live preview)
 
 1. **Add files / Add folder** (TIFF or CZI). The *Condition* column defaults to the parent folder name — edit it freely.
 2. **Channels** are read from the file metadata (Zeiss/CZI info, also kept in Fiji-exported TIFFs): the dropdowns list
@@ -19,15 +21,19 @@ fociquant                        # launches the GUI   (or: python -m fociquant_g
    opens. *Auto-detect from metadata* re-applies it. Roles follow **dye / contrast method, not display colour**
    (brightfield = Brightfield/Transmitted; foci = Rhodamine/mCherry/Cy3/AF555-594…; segmentation channel = the other
    fluorescence channel, e.g. AF647 shown in green). Files without metadata: pick the channels by hand.
-3. Select an image and tune the **Cell mask** until the yellow contour follows the cells
+3. Select an image and tune the **Cell mask** until the contour follows the cells
    (the status line shows backgrounds, threshold, mask % and the resulting mean live).
    The mask can be shown as **Outline**, **Fill** (translucent solid, adjustable opacity) or both (Style / Opacity above the image).
-   Main knob: **Threshold k × noise** (lower = larger mask). Use *View → Red + Green* to sanity check.
-   **Preview grid…** (top right) applies the current parameters to all images, or one condition, side by side with the
-   mean of each; click a tile to open it in the main view.
+   Main knob: **Threshold k × noise** (lower = larger mask). **Hover any parameter (or its name) for a short
+   explanation of what raising or lowering it does.** *Preview grid…* (top right) applies the current parameters to all
+   images, or one condition, side by side with the mean of each; click a tile to open it.
 4. Backgrounds can be overridden: choose method **roi** and drag the teal box over an empty area, or **fixed**.
-   **Hover any parameter (or its name) for a short explanation of what raising or lowering it does.**
-5. Pick an output folder and press **RUN BATCH**.
+
+**Tab 2 · Batch & Plot**
+
+5. Shows the images and parameters that will be used (untick images to leave them out; parameters are edited in tab 1).
+   Pick an output folder and press **RUN BATCH**. Results appear as **Plot**, **By condition** and **Per image**;
+   the plot metric can be changed without recomputing, and *Load results folder…* reopens an earlier run.
 
 ## What is computed
 

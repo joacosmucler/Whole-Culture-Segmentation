@@ -70,18 +70,27 @@ def condition_table(df):
     return pd.DataFrame(rows)
 
 
-def summary_plot(df, path_png: Path) -> None:
+METRICS = {
+    "mean_bgsub": "Mean red intensity in cells\n(background-subtracted, a.u.)",
+    "median_bgsub": "Median red intensity in cells\n(background-subtracted, a.u.)",
+    "mean_raw": "Mean red intensity in cells\n(raw, a.u.)",
+    "intdens_bgsub": "Integrated red intensity in cells\n(background-subtracted, a.u.)",
+    "mask_fraction": "Fraction of the field covered by cells",
+}
+
+
+def summary_plot(df, path_png: Path, metric: str = "mean_bgsub") -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     conds = list(dict.fromkeys(df["condition"]))
     fig, ax = plt.subplots(figsize=(1.6 * len(conds) + 2, 4))
-    data = [df.loc[df.condition == c, "mean_bgsub"].dropna().values for c in conds]
+    data = [df.loc[df.condition == c, metric].dropna().values for c in conds]
     ax.boxplot(data, tick_labels=conds, showfliers=False, widths=0.5)
     rng = np.random.default_rng(0)
     for i, d in enumerate(data, 1):
         ax.scatter(i + rng.uniform(-0.12, 0.12, len(d)), d, s=22, color="#1FA99F", zorder=3)
-    ax.set_ylabel("Mean red intensity in cells\n(background-subtracted, a.u.)")
+    ax.set_ylabel(METRICS.get(metric, metric))
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
     fig.savefig(path_png, dpi=200)
