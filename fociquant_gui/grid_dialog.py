@@ -88,7 +88,6 @@ class GridDialog(QDialog):
             return
         jobs = [(f, self._cond(f), self._params(f)) for f in files]       # snapshot now
         get_img = self._img
-        view_step = 2
 
         def work(progress):
             out = []

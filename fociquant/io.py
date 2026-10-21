@@ -108,16 +108,18 @@ def load_tiff(path: Path) -> list[Image]:
 def _czi_channels(root) -> list[ChannelInfo]:
     nodes = root.findall(".//Information/Image/Dimensions/Channels/Channel") \
         or root.findall(".//Dimensions/Channels/Channel")
+    def text(node, tag: str) -> str:
+        return (node.findtext(tag) or "").strip()
+
     out = []
     for n in nodes:
-        t = lambda tag: (n.findtext(tag) or "").strip()      # noqa: E731
-        em = t("EmissionWavelength")
+        em = text(n, "EmissionWavelength")
         try:
             emv = float(em) if em else None
         except ValueError:
             emv = None
-        out.append(ChannelInfo(n.attrib.get("Name", ""), t("Fluor"), t("ContrastMethod"),
-                               t("IlluminationType"), emv))
+        out.append(ChannelInfo(n.attrib.get("Name", ""), text(n, "Fluor"), text(n, "ContrastMethod"),
+                               text(n, "IlluminationType"), emv))
     return out
 
 

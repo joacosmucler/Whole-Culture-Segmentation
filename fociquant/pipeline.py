@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict, field, fields, replace
+from dataclasses import dataclass, asdict, fields, replace
 from pathlib import Path
 
-import numpy as np
 
 from .background import estimate_bg
 from .io import Image, load_image

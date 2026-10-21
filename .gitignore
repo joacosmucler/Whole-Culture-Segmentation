@@ -1,9 +1,23 @@
+# image data never goes in the repo
 *.tif
 *.tiff
 *.czi
 CF/
 CM*/
 results/
+FociQuant_results/
+
+# python / tooling
 __pycache__/
+*.py[cod]
 *.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# OS
 .DS_Store
+Thumbs.db

@@ -6,7 +6,6 @@ from dataclasses import replace
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings, Qt, QTimer
-from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel,
                              QMainWindow, QMessageBox, QPushButton, QScrollArea, QSlider, QSplitter, QTableWidget,
                              QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)

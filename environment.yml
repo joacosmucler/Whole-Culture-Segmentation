@@ -1,0 +1,12 @@
+# Conda alternative to the double-click launchers:
+#   conda env create -f environment.yml
+#   conda activate fociquant
+#   fociquant
+name: fociquant
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -e ".[all]"
